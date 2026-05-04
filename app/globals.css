@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* Eğer özel renklerin varsa buraya ekleyebilirsin */
+:root {
+  --foreground-rgb: 30, 41, 59;
+  --background-start-rgb: 248, 250, 252;
+  --background-end-rgb: 248, 250, 252;
+}
