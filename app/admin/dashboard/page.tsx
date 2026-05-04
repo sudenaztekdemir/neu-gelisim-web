@@ -3,19 +3,24 @@ import { useState, useEffect } from "react";
 import { db, auth } from "@/lib/firebase";
 import { 
   collection, addDoc, deleteDoc, doc, updateDoc, 
-  onSnapshot, setDoc, arrayUnion, arrayRemove 
+  onSnapshot, setDoc, arrayUnion, arrayRemove, getDoc 
 } from "firebase/firestore";
-import { signOut, createUserWithEmailAndPassword } from "firebase/auth";
+import { signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function AdminDashboard() {
   const router = useRouter();
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null); // null = yükleniyor, false = giriş yapılmamış/yetkisiz
   const [activeTab, setActiveTab] = useState("events");
   const [events, setEvents] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   
+  // Giriş Yap State'leri
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
   // Etkinlik Form State
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -27,7 +32,7 @@ export default function AdminDashboard() {
   const [managingGallery, setManagingGallery] = useState<any>(null);
   const [newGalleryUrl, setNewGalleryUrl] = useState("");
 
-  // YENİ: Katılımcı Yönetim State ✨
+  // Katılımcı Yönetim State
   const [managingAttendees, setManagingAttendees] = useState<any>(null);
   const [selectedMemberId, setSelectedMemberId] = useState("");
 
@@ -40,19 +45,58 @@ export default function AdminDashboard() {
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState("member");
 
+  // Auth ve Veri Dinleme
   useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // Kullanıcının admin rolü olup olmadığını kontrol et
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists() && userDoc.data().role === "admin") {
+          setIsAdmin(true);
+        } else {
+          alert("Bu alana yalnızca adminler erişebilir!");
+          await signOut(auth);
+          setIsAdmin(false);
+        }
+      } else {
+        setIsAdmin(false);
+      }
+    });
+
     const unsubEvents = onSnapshot(collection(db, "events"), (snap) => {
       setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
       setMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-    return () => { unsubEvents(); unsubUsers(); };
+
+    return () => { unsubscribeAuth(); unsubEvents(); unsubUsers(); };
   }, []);
+
+  // Giriş Yapma Fonksiyonu
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
+      if (userDoc.exists() && userDoc.data().role === "admin") {
+        setIsAdmin(true);
+      } else {
+        alert("Yetkisiz giriş denemesi! Sadece adminler erişebilir.");
+        await signOut(auth);
+        setIsAdmin(false);
+      }
+    } catch (err: any) {
+      alert("Hatalı giriş: " + err.message);
+    }
+    setLoading(false);
+  };
 
   const handleLogout = async () => {
     if (confirm("Oturumu kapatmak istediğine emin misin?")) {
       await signOut(auth);
+      setIsAdmin(false);
       router.push("/");
     }
   };
@@ -113,19 +157,16 @@ export default function AdminDashboard() {
     setLoading(false);
   };
 
-  // YENİ: Katılımcı Ekleme Fonksiyonu ✨
   const handleAddAttendee = async () => {
     if (!selectedMemberId) return alert("Lütfen bir üye seçin!");
     const member = members.find(m => m.id === selectedMemberId);
     if (!member) return;
 
-    // Zaten ekli mi kontrolü
     const isAlreadyAttendee = managingAttendees.attendees?.some(
       (a: any) => a.studentId === member.studentId
     );
     if (isAlreadyAttendee) return alert("Bu üye zaten etkinliğe kayıtlı!");
 
-    // Kontenjan kontrolü
     if (managingAttendees.quota && (managingAttendees.attendees?.length || 0) >= managingAttendees.quota) {
       return alert("Kontenjan dolu!");
     }
@@ -138,9 +179,7 @@ export default function AdminDashboard() {
         department: member.department || "Belirtilmemiş",
         time: new Date().toISOString()
       };
-      await updateDoc(eventRef, {
-        attendees: arrayUnion(newAttendee)
-      });
+      await updateDoc(eventRef, { attendees: arrayUnion(newAttendee) });
       setManagingAttendees({
         ...managingAttendees,
         attendees: [...(managingAttendees.attendees || []), newAttendee]
@@ -150,14 +189,11 @@ export default function AdminDashboard() {
     } catch (err) { alert("Hata oluştu."); }
   };
 
-  // YENİ: Katılımcı Silme Fonksiyonu ✨
   const handleRemoveAttendee = async (attendee: any) => {
     if (!confirm("Katılımcıyı silmek istediğine emin misin?")) return;
     try {
       const eventRef = doc(db, "events", managingAttendees.id);
-      await updateDoc(eventRef, {
-        attendees: arrayRemove(attendee)
-      });
+      await updateDoc(eventRef, { attendees: arrayRemove(attendee) });
       setManagingAttendees({
         ...managingAttendees,
         attendees: managingAttendees.attendees.filter((a: any) => a.studentId !== attendee.studentId)
@@ -166,6 +202,36 @@ export default function AdminDashboard() {
     } catch (err) { alert("Silinirken hata oluştu."); }
   };
 
+  // 1. YÜKLENİYOR EKRANI
+  if (isAdmin === null) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center">
+        <div className="text-[#1A458B] font-black text-xl tracking-widest animate-pulse font-sans">YÜKLENİYOR...</div>
+      </div>
+    );
+  }
+
+  // 2. GİRİŞ YAP EKRANI
+  if (isAdmin === false) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-6 text-slate-800 font-sans">
+        <form onSubmit={handleLogin} className="bg-white w-full max-w-md rounded-[50px] p-12 shadow-2xl border border-slate-50 animate-in fade-in duration-500">
+          <div className="mb-8 text-center">
+            <h2 className="text-[#1A458B] text-4xl font-black uppercase tracking-tighter italic">Admin Girişi</h2>
+            <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-2">Yönetim paneline erişim</p>
+          </div>
+          <div className="space-y-4">
+            <input type="email" placeholder="E-posta Adresi" value={email} onChange={e=>setEmail(e.target.value)} className="w-full p-5 bg-slate-50 rounded-3xl outline-none font-bold border-none focus:ring-2 focus:ring-[#40E0D0]" required />
+            <input type="password" placeholder="Şifre" value={password} onChange={e=>setPassword(e.target.value)} className="w-full p-5 bg-slate-50 rounded-3xl outline-none font-bold border-none focus:ring-2 focus:ring-[#40E0D0]" required />
+            <button type="submit" disabled={loading} className="w-full bg-[#1A458B] text-white py-5 rounded-3xl font-black shadow-lg hover:bg-blue-900 transition-all uppercase tracking-widest mt-2">{loading ? "İŞLENİYOR..." : "Giriş Yap 🚀"}</button>
+          </div>
+          <div className="mt-8 text-center"><Link href="/" className="text-sm font-black text-[#40E0D0] uppercase tracking-wider hover:underline">🌐 Ana Sayfaya Dön</Link></div>
+        </form>
+      </div>
+    );
+  }
+
+  // 3. ADMIN DASHBOARD EKRANI
   return (
     <div className="flex min-h-screen bg-[#F8FAFC] text-slate-800 font-sans">
       <aside className="w-80 bg-[#1A458B] p-10 flex flex-col shadow-2xl fixed h-full z-30">
@@ -212,7 +278,6 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   <div className="flex gap-3">
-                    {/* YENİ: Katılımcılar Butonu ✨ */}
                     <button onClick={() => setManagingAttendees(ev)} className="bg-green-50 text-green-600 px-6 py-4 rounded-2xl font-black text-xs hover:bg-green-600 hover:text-white transition-all uppercase tracking-widest font-sans">👥 Katılımcılar</button>
                     <button onClick={() => setManagingGallery(ev)} className="bg-blue-50 text-[#1A458B] px-6 py-4 rounded-2xl font-black text-xs hover:bg-[#1A458B] hover:text-white transition-all uppercase font-sans tracking-widest">📸 Galeri</button>
                     <button onClick={() => {if(confirm("Silinsin mi?")) deleteDoc(doc(db, "events", ev.id))}} className="w-14 h-14 bg-red-50 text-red-500 rounded-2xl hover:bg-red-500 hover:text-white transition-all font-black">✕</button>
@@ -251,7 +316,7 @@ export default function AdminDashboard() {
         )}
       </main>
 
-      {/* YENİ: KATILIMCI YÖNETİM MODALI ✨ */}
+      {/* KATILIMCI YÖNETİM MODALI */}
       {managingAttendees && (
         <div className="fixed inset-0 bg-[#1A458B]/60 backdrop-blur-md z-[100] flex items-center justify-center p-6 text-slate-800">
           <div className="bg-white w-full max-w-2xl rounded-[50px] p-12 shadow-2xl flex flex-col max-h-[90vh]">
@@ -260,7 +325,6 @@ export default function AdminDashboard() {
               {managingAttendees.quota ? `${managingAttendees.attendees?.length || 0} / ${managingAttendees.quota} Kontenjan` : `${managingAttendees.attendees?.length || 0} Kayıtlı`}
             </p>
 
-            {/* Katılımcı Ekleme Alanı */}
             <div className="flex gap-3 mb-8">
               <select value={selectedMemberId} onChange={e=>setSelectedMemberId(e.target.value)} className="flex-1 p-5 bg-slate-50 rounded-3xl outline-none font-sans font-bold text-sm">
                 <option value="">Bir üye seçin...</option>
@@ -271,7 +335,6 @@ export default function AdminDashboard() {
               <button onClick={handleAddAttendee} className="bg-[#1A458B] text-white px-8 rounded-3xl font-black text-xs uppercase font-sans tracking-widest hover:bg-[#40E0D0] hover:text-[#1A458B] transition-all">Ekle</button>
             </div>
 
-            {/* Katılımcı Listesi */}
             <div className="flex-1 overflow-y-auto pr-2 divide-y divide-slate-100">
               {managingAttendees.attendees && managingAttendees.attendees.length > 0 ? (
                 managingAttendees.attendees.map((attendee: any, index: number) => (
@@ -315,7 +378,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* YENİ ÜYE EKLEME MODALI */}
+      {/* ÜYE EKLEME MODALI */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-[#1A458B]/60 backdrop-blur-md z-[100] flex items-center justify-center p-6 text-slate-800">
           <form onSubmit={handleAddMember} className="bg-white w-full max-w-md rounded-[50px] p-12 shadow-2xl animate-in zoom-in duration-300">
