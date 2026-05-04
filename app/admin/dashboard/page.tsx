@@ -27,6 +27,10 @@ export default function AdminDashboard() {
   const [managingGallery, setManagingGallery] = useState<any>(null);
   const [newGalleryUrl, setNewGalleryUrl] = useState("");
 
+  // YENİ: Katılımcı Yönetim State ✨
+  const [managingAttendees, setManagingAttendees] = useState<any>(null);
+  const [selectedMemberId, setSelectedMemberId] = useState("");
+
   // Üye State (Ekleme & Düzenleme)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<any>(null);
@@ -92,7 +96,6 @@ export default function AdminDashboard() {
     setLoading(false);
   };
 
-  // ÜYE GÜNCELLEME FONKSİYONU
   const handleUpdateMember = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -108,6 +111,59 @@ export default function AdminDashboard() {
       setNewName(""); setNewStudentId(""); setNewDept("");
     } catch (err) { alert("Güncellenirken hata oluştu!"); }
     setLoading(false);
+  };
+
+  // YENİ: Katılımcı Ekleme Fonksiyonu ✨
+  const handleAddAttendee = async () => {
+    if (!selectedMemberId) return alert("Lütfen bir üye seçin!");
+    const member = members.find(m => m.id === selectedMemberId);
+    if (!member) return;
+
+    // Zaten ekli mi kontrolü
+    const isAlreadyAttendee = managingAttendees.attendees?.some(
+      (a: any) => a.studentId === member.studentId
+    );
+    if (isAlreadyAttendee) return alert("Bu üye zaten etkinliğe kayıtlı!");
+
+    // Kontenjan kontrolü
+    if (managingAttendees.quota && (managingAttendees.attendees?.length || 0) >= managingAttendees.quota) {
+      return alert("Kontenjan dolu!");
+    }
+
+    try {
+      const eventRef = doc(db, "events", managingAttendees.id);
+      const newAttendee = {
+        name: member.fullName,
+        studentId: member.studentId,
+        department: member.department || "Belirtilmemiş",
+        time: new Date().toISOString()
+      };
+      await updateDoc(eventRef, {
+        attendees: arrayUnion(newAttendee)
+      });
+      setManagingAttendees({
+        ...managingAttendees,
+        attendees: [...(managingAttendees.attendees || []), newAttendee]
+      });
+      setSelectedMemberId("");
+      alert("Katılımcı eklendi! 🎉");
+    } catch (err) { alert("Hata oluştu."); }
+  };
+
+  // YENİ: Katılımcı Silme Fonksiyonu ✨
+  const handleRemoveAttendee = async (attendee: any) => {
+    if (!confirm("Katılımcıyı silmek istediğine emin misin?")) return;
+    try {
+      const eventRef = doc(db, "events", managingAttendees.id);
+      await updateDoc(eventRef, {
+        attendees: arrayRemove(attendee)
+      });
+      setManagingAttendees({
+        ...managingAttendees,
+        attendees: managingAttendees.attendees.filter((a: any) => a.studentId !== attendee.studentId)
+      });
+      alert("Katılımcı silindi! 🗑️");
+    } catch (err) { alert("Silinirken hata oluştu."); }
   };
 
   return (
@@ -156,6 +212,8 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   <div className="flex gap-3">
+                    {/* YENİ: Katılımcılar Butonu ✨ */}
+                    <button onClick={() => setManagingAttendees(ev)} className="bg-green-50 text-green-600 px-6 py-4 rounded-2xl font-black text-xs hover:bg-green-600 hover:text-white transition-all uppercase tracking-widest font-sans">👥 Katılımcılar</button>
                     <button onClick={() => setManagingGallery(ev)} className="bg-blue-50 text-[#1A458B] px-6 py-4 rounded-2xl font-black text-xs hover:bg-[#1A458B] hover:text-white transition-all uppercase font-sans tracking-widest">📸 Galeri</button>
                     <button onClick={() => {if(confirm("Silinsin mi?")) deleteDoc(doc(db, "events", ev.id))}} className="w-14 h-14 bg-red-50 text-red-500 rounded-2xl hover:bg-red-500 hover:text-white transition-all font-black">✕</button>
                   </div>
@@ -192,6 +250,48 @@ export default function AdminDashboard() {
           </div>
         )}
       </main>
+
+      {/* YENİ: KATILIMCI YÖNETİM MODALI ✨ */}
+      {managingAttendees && (
+        <div className="fixed inset-0 bg-[#1A458B]/60 backdrop-blur-md z-[100] flex items-center justify-center p-6 text-slate-800">
+          <div className="bg-white w-full max-w-2xl rounded-[50px] p-12 shadow-2xl flex flex-col max-h-[90vh]">
+            <h3 className="text-3xl font-black text-[#1A458B] mb-2 uppercase tracking-tighter">{managingAttendees.title}</h3>
+            <p className="text-slate-400 text-sm mb-6 font-bold uppercase tracking-widest font-sans">
+              {managingAttendees.quota ? `${managingAttendees.attendees?.length || 0} / ${managingAttendees.quota} Kontenjan` : `${managingAttendees.attendees?.length || 0} Kayıtlı`}
+            </p>
+
+            {/* Katılımcı Ekleme Alanı */}
+            <div className="flex gap-3 mb-8">
+              <select value={selectedMemberId} onChange={e=>setSelectedMemberId(e.target.value)} className="flex-1 p-5 bg-slate-50 rounded-3xl outline-none font-sans font-bold text-sm">
+                <option value="">Bir üye seçin...</option>
+                {members.map(m => (
+                  <option key={m.id} value={m.id}>{m.fullName} ({m.studentId})</option>
+                ))}
+              </select>
+              <button onClick={handleAddAttendee} className="bg-[#1A458B] text-white px-8 rounded-3xl font-black text-xs uppercase font-sans tracking-widest hover:bg-[#40E0D0] hover:text-[#1A458B] transition-all">Ekle</button>
+            </div>
+
+            {/* Katılımcı Listesi */}
+            <div className="flex-1 overflow-y-auto pr-2 divide-y divide-slate-100">
+              {managingAttendees.attendees && managingAttendees.attendees.length > 0 ? (
+                managingAttendees.attendees.map((attendee: any, index: number) => (
+                  <div key={index} className="py-4 flex items-center justify-between">
+                    <div>
+                      <p className="font-black text-base text-slate-800">{attendee.name}</p>
+                      <p className="text-xs text-slate-400 font-bold font-sans">{attendee.studentId} • {attendee.department}</p>
+                    </div>
+                    <button onClick={() => handleRemoveAttendee(attendee)} className="p-3 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all font-black text-xs font-sans">Kaldır</button>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-10 text-slate-300 font-black text-sm tracking-widest font-sans">HİÇ KATILIMCI YOK</div>
+              )}
+            </div>
+
+            <button onClick={() => setManagingAttendees(null)} className="mt-8 w-full py-5 rounded-3xl font-black text-slate-400 border uppercase text-xs font-sans">Kapat</button>
+          </div>
+        </div>
+      )}
 
       {/* GALERİ MODALI */}
       {managingGallery && (
