@@ -10,6 +10,7 @@ export default function SignUpPage() {
   const [name, setName] = useState("");
   const [studentId, setStudentId] = useState("");
   const [dept, setDept] = useState("");
+  const [phone, setPhone] = useState(""); // State zaten var, artık kullanıyoruz
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -25,17 +26,18 @@ export default function SignUpPage() {
       // 1. Firebase Auth Kaydı
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
-      // 2. Firestore'a Kullanıcı Bilgilerini Kaydetme (Bölüm dahil)
+      // 2. Firestore'a Kullanıcı Bilgilerini Kaydetme
       await setDoc(doc(db, "users", userCredential.user.uid), {
         fullName: name,
         studentId: studentId,
         department: dept,
-        role: "member", // Kendi kayıt olanlar varsayılan olarak 'member' olur
+        phoneNumber: phone, // TELEFON NUMARASI BURAYA EKLENDİ ✨
+        role: "member",
         createdAt: new Date().toISOString()
       });
 
       alert("Aramıza hoş geldin! Kaydın başarıyla oluşturuldu. 🎉");
-      router.push("/member/events"); // Direkt etkinliklere gönderiyoruz
+      router.push("/member/events");
     } catch (err: any) {
       alert("Hata: " + err.message);
     }
@@ -53,22 +55,28 @@ export default function SignUpPage() {
         <form onSubmit={handleSignUp} className="space-y-5">
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Ad Soyad</label>
-            <input type="text" value={name} onChange={e=>setName(e.target.value)}  className="w-full p-5 bg-slate-50 rounded-3xl outline-none focus:ring-2 focus:ring-[#40E0D0] border-none font-bold" required />
+            <input type="text" value={name} onChange={e=>setName(e.target.value)} className="w-full p-5 bg-slate-50 rounded-3xl outline-none focus:ring-2 focus:ring-[#40E0D0] border-none font-bold" placeholder="Adınız ve Soyadınız" required />
           </div>
 
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Öğrenci Numarası</label>
-            <input type="text" value={studentId} onChange={e=>setStudentId(e.target.value)}  className="w-full p-5 bg-slate-50 rounded-3xl outline-none focus:ring-2 focus:ring-[#40E0D0] border-none font-bold" required />
+            <input type="text" value={studentId} onChange={e=>setStudentId(e.target.value)} className="w-full p-5 bg-slate-50 rounded-3xl outline-none focus:ring-2 focus:ring-[#40E0D0] border-none font-bold" placeholder="Öğrenci No" required />
           </div>
 
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Bölüm</label>
-            <input type="text" value={dept} onChange={e=>setDept(e.target.value)}  className="w-full p-5 bg-slate-50 rounded-3xl outline-none focus:ring-2 focus:ring-[#40E0D0] border-none font-bold" required />
+            <input type="text" value={dept} onChange={e=>setDept(e.target.value)} className="w-full p-5 bg-slate-50 rounded-3xl outline-none focus:ring-2 focus:ring-[#40E0D0] border-none font-bold" placeholder="Bölümünüz" required />
+          </div>
+
+          {/* TELEFON NUMARASI GİRİŞ ALANI ✨ */}
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Telefon Numarası</label>
+            <input type="tel" value={phone} onChange={e=>setPhone(e.target.value)} className="w-full p-5 bg-slate-50 rounded-3xl outline-none focus:ring-2 focus:ring-[#40E0D0] border-none font-bold" placeholder="05XX XXX XX XX" required />
           </div>
 
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Şifre Belirle</label>
-            <input type="password" value={password} onChange={e=>setPassword(e.target.value)}  className="w-full p-5 bg-slate-50 rounded-3xl outline-none focus:ring-2 focus:ring-[#1A458B] border-none font-bold" required />
+            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full p-5 bg-slate-50 rounded-3xl outline-none focus:ring-2 focus:ring-[#1A458B] border-none font-bold" placeholder="••••••••" required />
           </div>
 
           <button type="submit" disabled={loading} className="w-full bg-[#1A458B] text-white py-6 rounded-3xl font-black shadow-xl hover:bg-[#40E0D0] hover:text-[#1A458B] transition-all uppercase tracking-widest text-sm mt-4">
